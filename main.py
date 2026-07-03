@@ -68,8 +68,7 @@ class UserAuthMiddleware(Middleware):
 mcp = FastMCP(
     name="CashflowAgent",
 )
-# Temporarily disable auth for testing tool discovery
-# mcp.add_middleware(UserAuthMiddleware())
+mcp.add_middleware(UserAuthMiddleware())
 
 # -----------------
 # TOOLS
