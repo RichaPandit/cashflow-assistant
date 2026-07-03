@@ -249,6 +249,160 @@ app = FastAPI(
 async def health():
     return await health_check()
 
+# Simple stateless MCP JSON-RPC endpoint for Copilot Studio
+@app.post("/mcp-rpc")
+async def mcp_jsonrpc(request: Request):
+    """Stateless MCP JSON-RPC endpoint for Copilot Studio"""
+    try:
+        body = await request.json()
+        method = body.get("method")
+        params = body.get("params", {})
+        request_id = body.get("id", 1)
+        
+        # Handle MCP protocol methods
+        if method == "initialize":
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": "CashflowAgent",
+                        "version": "1.0.0"
+                    }
+                }
+            }
+        
+        elif method == "tools/list":
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "get_cashflow_forecast",
+                            "description": "Get cashflow forecast from Fabric Lakehouse with FX conversion and supporting documents",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {
+                                        "type": "string",
+                                        "description": "Search query for supporting documents"
+                                    }
+                                },
+                                "required": ["query"]
+                            }
+                        },
+                        {
+                            "name": "search_documents_tool",
+                            "description": "Search SharePoint documents indexed in Azure AI Search",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {
+                                        "type": "string",
+                                        "description": "Search query"
+                                    },
+                                    "top": {
+                                        "type": "integer",
+                                        "description": "Maximum number of results (default: 3)"
+                                    }
+                                },
+                                "required": ["query"]
+                            }
+                        },
+                        {
+                            "name": "get_exchange_rate",
+                            "description": "Get current exchange rate between two currencies",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "base_currency": {
+                                        "type": "string",
+                                        "description": "Base currency code (default: GBP)"
+                                    },
+                                    "target_currency": {
+                                        "type": "string",
+                                        "description": "Target currency code (default: USD)"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        
+        elif method == "tools/call":
+            tool_name = params.get("name")
+            arguments = params.get("arguments", {})
+            
+            try:
+                if tool_name == "get_cashflow_forecast":
+                    result = get_cashflow_forecast(arguments.get("query", "cashflow forecast"))
+                elif tool_name == "search_documents_tool":
+                    result = search_documents_tool(arguments.get("query", ""), arguments.get("top", 3))
+                elif tool_name == "get_exchange_rate":
+                    result = get_exchange_rate(
+                        arguments.get("base_currency", "GBP"),
+                        arguments.get("target_currency", "USD")
+                    )
+                else:
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {
+                            "code": -32601,
+                            "message": f"Tool not found: {tool_name}"
+                        }
+                    }
+                
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": result
+                            }
+                        ]
+                    }
+                }
+            except Exception as e:
+                logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": -32000,
+                        "message": f"Tool execution error: {str(e)}"
+                    }
+                }
+        
+        else:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
+            }
+            
+    except Exception as e:
+        logger.error(f"Error in MCP JSON-RPC handler: {e}", exc_info=True)
+        return {
+            "jsonrpc": "2.0",
+            "id": "error",
+            "error": {
+                "code": -32700,
+                "message": f"Parse error: {str(e)}"
+            }
+        }
+
 # Simple HTTP wrapper for MCP tools (for Copilot Studio compatibility)
 @app.post("/api/tools/cashflow-forecast")
 async def api_cashflow_forecast(request: Request):
