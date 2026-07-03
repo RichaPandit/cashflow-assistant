@@ -110,9 +110,9 @@ def get_cashflow_forecast(query: str) -> str:
         logger.info("Docs RAG: %s", docs_rag)
 
         # 4. Build answer with citations
-        answer = f"Projected cash flow is £{int(forecast)} (~${int(forecast * fx_rate)})."
+        answer = f"Projected cash flow is Â£{int(forecast)} (~${int(forecast * fx_rate)})."
         if breakdown:
-            answer += "\n\nBreakdown by month:" + "".join([f"\n- {month}: £{int(val['gbp'])} (~${int(val['usd'])})" for month, val in breakdown.items()])
+            answer += "\n\nBreakdown by month:" + "".join([f"\n- {month}: Â£{int(val['gbp'])} (~${int(val['usd'])})" for month, val in breakdown.items()])
 
         # Add clickable PDF/document links if present
         doc_links = []
