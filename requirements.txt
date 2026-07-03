@@ -2,6 +2,7 @@ fastapi
 fastmcp
 uvicorn
 gunicorn
+starlette
 requests
 python-dotenv
 PyPDF2
