@@ -249,6 +249,21 @@ app = FastAPI(
 async def health():
     return await health_check()
 
+# Handle GET requests to /mcp endpoint (for validation)
+@app.get("/mcp")
+async def mcp_get():
+    """Return expected error for GET requests (Copilot Studio validation)"""
+    return JSONResponse(
+        content={
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32000,
+                "message": "Method not allowed."
+            },
+            "id": None
+        }
+    )
+
 # Handle CORS preflight for MCP endpoint
 @app.options("/mcp")
 async def mcp_options():
@@ -256,7 +271,7 @@ async def mcp_options():
         content={},
         headers={
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "*",
         }
     )
