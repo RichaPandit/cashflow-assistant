@@ -250,7 +250,7 @@ async def health():
     return await health_check()
 
 # Simple stateless MCP JSON-RPC endpoint for Copilot Studio
-@app.post("/mcp-rpc")
+@app.post("/mcp")
 async def mcp_jsonrpc(request: Request):
     """Stateless MCP JSON-RPC endpoint for Copilot Studio"""
     try:
@@ -474,8 +474,8 @@ async def list_tools():
         ]
     }
 
-# Mount MCP app at /mcp (for MCP-compatible clients)
-app.mount("/mcp", _mcp_app)
+# Mount streamable MCP app at /mcp-sse (for SSE-compatible MCP clients)
+app.mount("/mcp-sse", _mcp_app)
 
 # Add CORS middleware for Copilot Studio
 app.add_middleware(
