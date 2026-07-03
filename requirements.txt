@@ -1,0 +1,11 @@
+fastapi
+fastmcp
+uvicorn
+gunicorn
+requests
+python-dotenv
+PyPDF2
+pandas
+pyarrow
+azure-identity
+deltalake
