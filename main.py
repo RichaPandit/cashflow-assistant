@@ -216,35 +216,21 @@ def res_fabric_cashflow() -> List[float]:
 # --------------------------
 # ASGI app & direct run
 # --------------------------
-from starlette.applications import Starlette
-from starlette.responses import JSONResponse
-from starlette.routing import Route, Mount
+from starlette.middleware.cors import CORSMiddleware
 
-async def health_check(request):
-    """Health check endpoint for Azure App Service"""
-    return JSONResponse({"status": "healthy", "service": "CashflowAgent"})
-
+# Create MCP ASGI app
 _mcp_app = create_streamable_http_app(
     server=mcp,
     streamable_http_path="/",
 )
 
-# Create main app with health check
-app = Starlette(
-    routes=[
-        Route("/", health_check),
-        Route("/health", health_check),
-        Mount("/mcp", _mcp_app),
-    ]
-)
-
-# Add CORS so Copilot Studio (cross-origin) can reach the MCP endpoint
-from starlette.middleware.cors import CORSMiddleware as StarletteCORS
-app = StarletteCORS(
-    app=app,
+# Wrap with CORS for Copilot Studio
+app = CORSMiddleware(
+    app=_mcp_app,
     allow_origins=["*"],
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 if __name__ == "__main__":
