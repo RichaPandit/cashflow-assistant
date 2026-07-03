@@ -13,6 +13,9 @@ from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.http import create_streamable_http_app
 from starlette.middleware.cors import CORSMiddleware
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route, Mount
 
 try:
     from fastmcp.server.exceptions import ToolError
@@ -213,14 +216,32 @@ def res_fabric_cashflow() -> List[float]:
 # --------------------------
 # ASGI app & direct run
 # --------------------------
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route, Mount
+
+async def health_check(request):
+    """Health check endpoint for Azure App Service"""
+    return JSONResponse({"status": "healthy", "service": "CashflowAgent"})
+
 _mcp_app = create_streamable_http_app(
     server=mcp,
-    streamable_http_path="/mcp",
+    streamable_http_path="/",
 )
 
-# Wrap with CORS so Copilot Studio (cross-origin) can reach the MCP endpoint
-app = CORSMiddleware(
-    app=_mcp_app,
+# Create main app with health check
+app = Starlette(
+    routes=[
+        Route("/", health_check),
+        Route("/health", health_check),
+        Mount("/mcp", _mcp_app),
+    ]
+)
+
+# Add CORS so Copilot Studio (cross-origin) can reach the MCP endpoint
+from starlette.middleware.cors import CORSMiddleware as StarletteCORS
+app = StarletteCORS(
+    app=app,
     allow_origins=["*"],
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
