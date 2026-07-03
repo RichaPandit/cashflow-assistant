@@ -8,24 +8,75 @@ from rag import search_documents
 from external_api import get_fx_rate
 
 # FastMCP
-from fastmcp import FastMCP
-from starlette.responses import JSONResponse
-import uvicorn
+from fastmcp.server import FastMCP
+from fastmcp.server.dependencies import get_http_headers
+from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.http import create_streamable_http_app
+from starlette.middleware.cors import CORSMiddleware
+
+try:
+    from fastmcp.server.exceptions import ToolError
+except Exception:
+    class ToolError(Exception):
+        pass
+
+# -----------------
+# Config & constants
+# -----------------
+HEADER_NAME = "x-agent-key"
+LOCAL_TOKEN: str = os.getenv("MCP_DEV_ASSUME_KEY", os.getenv("LOCAL_TOKEN", "")).strip()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # -----------------
-# FastMCP server
+# Auth middleware
 # -----------------
-mcp = FastMCP("CashflowAgent")
+class UserAuthMiddleware(Middleware):
+    async def on_message(self, context: MiddlewareContext, call_next):
+        # Allow initialization and tool discovery without auth
+        method = getattr(context, 'method', None)
+        if method in ['initialize', 'tools/list', 'resources/list']:
+            logger.info(f"Allowing {method} without authentication")
+            return await call_next(context)
+        
+        headers = get_http_headers()
+
+        mcp_api_key = headers.get(HEADER_NAME) or headers.get("api-key")
+        if not mcp_api_key:
+            logger.warning("No authentication key provided")
+            raise ToolError("Access denied: no key provided")
+
+        if not mcp_api_key.startswith("Bearer "):
+            logger.warning("Invalid token format in %s", HEADER_NAME)
+            raise ToolError("Access denied: invalid token format")
+
+        token = mcp_api_key.removeprefix("Bearer ").strip()
+        expected = (LOCAL_TOKEN or "").strip()
+        if not expected:
+            raise ToolError("Access denied: server not configured")
+        if token != expected:
+            logger.warning("Invalid token provided")
+            raise ToolError("Access denied: invalid token")
+
+        logger.info("Authentication successful")
+        return await call_next(context)
+
+# -----------------
+# FastMCP app
+# -----------------
+mcp = FastMCP(
+    name="CashflowAgent",
+)
+# Temporarily disable auth for testing tool discovery
+# mcp.add_middleware(UserAuthMiddleware())
 
 # -----------------
 # TOOLS
 # -----------------
 
 @mcp.tool()
-async def get_cashflow_forecast(query: str) -> str:
+def get_cashflow_forecast(query: str) -> str:
     """
     Get cashflow forecast from Fabric Lakehouse with FX conversion and supporting documents.
     Returns JSON with forecast, FX rate, and citations from Azure AI Search.
@@ -59,9 +110,9 @@ async def get_cashflow_forecast(query: str) -> str:
         logger.info("Docs RAG: %s", docs_rag)
 
         # 4. Build answer with citations
-        answer = f"Projected cash flow is Â£{int(forecast)} (~${int(forecast * fx_rate)})."
+        answer = f"Projected cash flow is £{int(forecast)} (~${int(forecast * fx_rate)})."
         if breakdown:
-            answer += "\n\nBreakdown by month:" + "".join([f"\n- {month}: Â£{int(val['gbp'])} (~${int(val['usd'])})" for month, val in breakdown.items()])
+            answer += "\n\nBreakdown by month:" + "".join([f"\n- {month}: £{int(val['gbp'])} (~${int(val['usd'])})" for month, val in breakdown.items()])
 
         # Add clickable PDF/document links if present
         doc_links = []
@@ -92,12 +143,16 @@ async def get_cashflow_forecast(query: str) -> str:
         for d in docs_rag:
             # Build a clickable link for PDFs if possible
             url = d.get("metadata_storage_path", "")
+            page = d.get("page")
             title = d.get("metadata_storage_name", "Document")
             if url and url.lower().endswith(".pdf"):
                 link = f"[{title}]({url})"
             else:
                 link = url or title
-            cite_title = link
+            if page:
+                cite_title = f"{link} (page {page})"
+            else:
+                cite_title = link
             citations.append({
                 "title": cite_title,
                 "url": url,
@@ -121,7 +176,7 @@ async def get_cashflow_forecast(query: str) -> str:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 @mcp.tool()
-async def search_documents_tool(query: str, top: int = 3) -> str:
+def search_documents_tool(query: str, top: int = 3) -> str:
     """
     Search SharePoint documents indexed in Azure AI Search.
     
@@ -133,7 +188,7 @@ async def search_documents_tool(query: str, top: int = 3) -> str:
     return json.dumps(docs, ensure_ascii=False)
 
 @mcp.tool()
-async def get_exchange_rate_tool(base_currency: str = "GBP", target_currency: str = "USD") -> str:
+def get_exchange_rate(base_currency: str = "GBP", target_currency: str = "USD") -> str:
     """
     Get current exchange rate between two currencies.
     
@@ -150,144 +205,33 @@ async def get_exchange_rate_tool(base_currency: str = "GBP", target_currency: st
     return json.dumps(result, ensure_ascii=False)
 
 # -----------------
-# Health check endpoint
+# RESOURCES
 # -----------------
-@mcp.custom_route("/health", methods=["GET"])
-async def health_check(request):
-    """Health check endpoint for Azure App Service"""
-    return JSONResponse({"status": "healthy", "service": "CashflowAgent"})
 
-# -----------------
-# Stateless JSON-RPC endpoint for Copilot Studio
-# -----------------
-@mcp.custom_route("/mcp", methods=["GET", "POST"])
-async def mcp_jsonrpc_endpoint(request):
-    """Stateless JSON-RPC endpoint for Copilot Studio"""
-    
-    # Handle GET request (validation)
-    if request.method == "GET":
-        return JSONResponse({
-            "jsonrpc": "2.0",
-            "error": {"code": -32000, "message": "Method not allowed."},
-            "id": None
-        })
-    
-    # Handle POST request (JSON-RPC)
-    try:
-        body = await request.json()
-        logger.info(f"MCP request: {json.dumps(body)}")
-        
-        method = body.get("method")
-        params = body.get("params", {})
-        request_id = body.get("id", 1)
-        
-        if method == "initialize":
-            return JSONResponse({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "CashflowAgent", "version": "1.0.0"}
-                }
-            })
-        
-        elif method == "tools/list":
-            return JSONResponse({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "tools": [
-                        {
-                            "name": "get_cashflow_forecast",
-                            "description": "Get cashflow forecast from Fabric Lakehouse with FX conversion and supporting documents",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "query": {"type": "string", "description": "Search query for supporting documents"}
-                                },
-                                "required": ["query"]
-                            }
-                        },
-                        {
-                            "name": "search_documents_tool",
-                            "description": "Search SharePoint documents indexed in Azure AI Search",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "query": {"type": "string", "description": "Search query"},
-                                    "top": {"type": "integer", "description": "Maximum number of results (default: 3)"}
-                                },
-                                "required": ["query"]
-                            }
-                        },
-                        {
-                            "name": "get_exchange_rate_tool",
-                            "description": "Get current exchange rate between two currencies",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "base_currency": {"type": "string", "description": "Base currency code (default: GBP)"},
-                                    "target_currency": {"type": "string", "description": "Target currency code (default: USD)"}
-                                }
-                            }
-                        }
-                    ]
-                }
-            })
-        
-        elif method == "tools/call":
-            tool_name = params.get("name")
-            tool_args = params.get("arguments", {})
-            
-            try:
-                if tool_name == "get_cashflow_forecast":
-                    result = await get_cashflow_forecast(**tool_args)
-                elif tool_name == "search_documents_tool":
-                    result = await search_documents_tool(**tool_args)
-                elif tool_name == "get_exchange_rate_tool":
-                    result = await get_exchange_rate_tool(**tool_args)
-                else:
-                    return JSONResponse({
-                        "jsonrpc": "2.0",
-                        "id": request_id,
-                        "error": {"code": -32601, "message": f"Tool not found: {tool_name}"}
-                    })
-                
-                return JSONResponse({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": {"content": [{"type": "text", "text": result}]}
-                })
-            except Exception as e:
-                logger.error(f"Tool execution error: {e}", exc_info=True)
-                return JSONResponse({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "error": {"code": -32603, "message": str(e)}
-                })
-        
-        else:
-            return JSONResponse({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32601, "message": f"Method not found: {method}"}
-            })
-            
-    except Exception as e:
-        logger.error(f"Request parsing error: {e}", exc_info=True)
-        return JSONResponse({
-            "jsonrpc": "2.0",
-            "id": None,
-            "error": {"code": -32700, "message": "Parse error"}
-        })
+@mcp.resource("data://cashflow/fabric", name="FabricCashflow",
+              description="Cashflow data from Microsoft Fabric Lakehouse",
+              mime_type="application/json")
+def res_fabric_cashflow() -> List[float]:
+    """Returns raw cashflow values from Fabric"""
+    return query_fabric_cashflow()
 
-# -----------------
-# Create HTTP app and run
-# -----------------
-app = mcp.http_app()
+# --------------------------
+# ASGI app & direct run
+# --------------------------
+_mcp_app = create_streamable_http_app(
+    server=mcp,
+    streamable_http_path="/mcp",
+)
+
+# Wrap with CORS so Copilot Studio (cross-origin) can reach the MCP endpoint
+app = CORSMiddleware(
+    app=_mcp_app,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host=host, port=port)
+    mcp.run(transport="streamable-http", host=host, port=port, path="/mcp")
