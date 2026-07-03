@@ -249,6 +249,18 @@ app = FastAPI(
 async def health():
     return await health_check()
 
+# Handle CORS preflight for MCP endpoint
+@app.options("/mcp")
+async def mcp_options():
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
 # Simple stateless MCP JSON-RPC endpoint for Copilot Studio
 @app.post("/mcp")
 async def mcp_jsonrpc(request: Request):
@@ -283,7 +295,7 @@ async def mcp_jsonrpc(request: Request):
             return JSONResponse(content=response)
         
         elif method == "tools/list":
-            return {
+            response = {
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "result": {
@@ -340,6 +352,8 @@ async def mcp_jsonrpc(request: Request):
                     ]
                 }
             }
+            logger.info(f"MCP tools/list response: {len(response['result']['tools'])} tools")
+            return JSONResponse(content=response)
         
         elif method == "tools/call":
             tool_name = params.get("name")
@@ -356,7 +370,7 @@ async def mcp_jsonrpc(request: Request):
                         arguments.get("target_currency", "USD")
                     )
                 else:
-                    return {
+                    response = {
                         "jsonrpc": "2.0",
                         "id": request_id,
                         "error": {
@@ -364,8 +378,10 @@ async def mcp_jsonrpc(request: Request):
                             "message": f"Tool not found: {tool_name}"
                         }
                     }
+                    logger.info(f"Tool not found: {tool_name}")
+                    return JSONResponse(content=response)
                 
-                return {
+                response = {
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "result": {
@@ -377,9 +393,11 @@ async def mcp_jsonrpc(request: Request):
                         ]
                     }
                 }
+                logger.info(f"Tool {tool_name} executed successfully")
+                return JSONResponse(content=response)
             except Exception as e:
                 logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
-                return {
+                response = {
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "error": {
@@ -387,9 +405,10 @@ async def mcp_jsonrpc(request: Request):
                         "message": f"Tool execution error: {str(e)}"
                     }
                 }
+                return JSONResponse(content=response)
         
         else:
-            return {
+            response = {
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "error": {
@@ -397,6 +416,8 @@ async def mcp_jsonrpc(request: Request):
                     "message": f"Method not found: {method}"
                 }
             }
+            logger.info(f"Method not found: {method}")
+            return JSONResponse(content=response)
             
     except Exception as e:
         logger.error(f"Error in MCP JSON-RPC handler: {e}", exc_info=True)
