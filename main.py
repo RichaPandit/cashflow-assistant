@@ -158,6 +158,131 @@ async def health_check(request):
     return JSONResponse({"status": "healthy", "service": "CashflowAgent"})
 
 # -----------------
+# Stateless JSON-RPC endpoint for Copilot Studio
+# -----------------
+@mcp.custom_route("/mcp", methods=["GET", "POST"])
+async def mcp_jsonrpc_endpoint(request):
+    """Stateless JSON-RPC endpoint for Copilot Studio"""
+    
+    # Handle GET request (validation)
+    if request.method == "GET":
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "error": {"code": -32000, "message": "Method not allowed."},
+            "id": None
+        })
+    
+    # Handle POST request (JSON-RPC)
+    try:
+        body = await request.json()
+        logger.info(f"MCP request: {json.dumps(body)}")
+        
+        method = body.get("method")
+        params = body.get("params", {})
+        request_id = body.get("id", 1)
+        
+        if method == "initialize":
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "CashflowAgent", "version": "1.0.0"}
+                }
+            })
+        
+        elif method == "tools/list":
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "get_cashflow_forecast",
+                            "description": "Get cashflow forecast from Fabric Lakehouse with FX conversion and supporting documents",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {"type": "string", "description": "Search query for supporting documents"}
+                                },
+                                "required": ["query"]
+                            }
+                        },
+                        {
+                            "name": "search_documents_tool",
+                            "description": "Search SharePoint documents indexed in Azure AI Search",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {"type": "string", "description": "Search query"},
+                                    "top": {"type": "integer", "description": "Maximum number of results (default: 3)"}
+                                },
+                                "required": ["query"]
+                            }
+                        },
+                        {
+                            "name": "get_exchange_rate_tool",
+                            "description": "Get current exchange rate between two currencies",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "base_currency": {"type": "string", "description": "Base currency code (default: GBP)"},
+                                    "target_currency": {"type": "string", "description": "Target currency code (default: USD)"}
+                                }
+                            }
+                        }
+                    ]
+                }
+            })
+        
+        elif method == "tools/call":
+            tool_name = params.get("name")
+            tool_args = params.get("arguments", {})
+            
+            try:
+                if tool_name == "get_cashflow_forecast":
+                    result = await get_cashflow_forecast(**tool_args)
+                elif tool_name == "search_documents_tool":
+                    result = await search_documents_tool(**tool_args)
+                elif tool_name == "get_exchange_rate_tool":
+                    result = await get_exchange_rate_tool(**tool_args)
+                else:
+                    return JSONResponse({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {"code": -32601, "message": f"Tool not found: {tool_name}"}
+                    })
+                
+                return JSONResponse({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {"content": [{"type": "text", "text": result}]}
+                })
+            except Exception as e:
+                logger.error(f"Tool execution error: {e}", exc_info=True)
+                return JSONResponse({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32603, "message": str(e)}
+                })
+        
+        else:
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32601, "message": f"Method not found: {method}"}
+            })
+            
+    except Exception as e:
+        logger.error(f"Request parsing error: {e}", exc_info=True)
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32700, "message": "Parse error"}
+        })
+
+# -----------------
 # Create HTTP app and run
 # -----------------
 app = mcp.http_app()
