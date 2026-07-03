@@ -255,13 +255,17 @@ async def mcp_jsonrpc(request: Request):
     """Stateless MCP JSON-RPC endpoint for Copilot Studio"""
     try:
         body = await request.json()
+        logger.info(f"MCP request received: {json.dumps(body)}")
+        
         method = body.get("method")
         params = body.get("params", {})
         request_id = body.get("id", 1)
         
+        logger.info(f"Processing method: {method}, id: {request_id}")
+        
         # Handle MCP protocol methods
         if method == "initialize":
-            return {
+            response = {
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "result": {
@@ -275,6 +279,8 @@ async def mcp_jsonrpc(request: Request):
                     }
                 }
             }
+            logger.info(f"MCP initialize response: {json.dumps(response)}")
+            return JSONResponse(content=response)
         
         elif method == "tools/list":
             return {
@@ -394,7 +400,7 @@ async def mcp_jsonrpc(request: Request):
             
     except Exception as e:
         logger.error(f"Error in MCP JSON-RPC handler: {e}", exc_info=True)
-        return {
+        response = {
             "jsonrpc": "2.0",
             "id": "error",
             "error": {
@@ -402,6 +408,8 @@ async def mcp_jsonrpc(request: Request):
                 "message": f"Parse error: {str(e)}"
             }
         }
+        logger.info(f"MCP error response: {json.dumps(response)}")
+        return JSONResponse(content=response)
 
 # Simple HTTP wrapper for MCP tools (for Copilot Studio compatibility)
 @app.post("/api/tools/cashflow-forecast")
