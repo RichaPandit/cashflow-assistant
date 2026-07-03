@@ -218,25 +218,36 @@ def res_fabric_cashflow() -> List[float]:
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-
-async def health_check():
-    """Health check endpoint for Azure App Service"""
-    return {"status": "healthy", "service": "CashflowAgent"}
-
-# Create FastAPI app
-app = FastAPI(title="CashflowAgent")
-
-# Add health check endpoints
-@app.get("/")
-@app.get("/health")
-async def health():
-    return await health_check()
+from contextlib import asynccontextmanager
 
 # Create MCP ASGI app
 _mcp_app = create_streamable_http_app(
     server=mcp,
     streamable_http_path="/",
 )
+
+# Extract lifespan from MCP app for FastAPI
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start MCP lifespan
+    async with _mcp_app.router.lifespan_context(app):
+        yield
+
+async def health_check():
+    """Health check endpoint for Azure App Service"""
+    return {"status": "healthy", "service": "CashflowAgent"}
+
+# Create FastAPI app with MCP lifespan
+app = FastAPI(
+    title="CashflowAgent",
+    lifespan=lifespan
+)
+
+# Add health check endpoints
+@app.get("/")
+@app.get("/health")
+async def health():
+    return await health_check()
 
 # Mount MCP app at /mcp
 app.mount("/mcp", _mcp_app)
