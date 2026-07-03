@@ -215,7 +215,7 @@ def res_fabric_cashflow() -> List[float]:
 # --------------------------
 # ASGI app & direct run
 # --------------------------
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -249,7 +249,78 @@ app = FastAPI(
 async def health():
     return await health_check()
 
-# Mount MCP app at /mcp
+# Simple HTTP wrapper for MCP tools (for Copilot Studio compatibility)
+@app.post("/api/tools/cashflow-forecast")
+async def api_cashflow_forecast(request: Request):
+    """REST endpoint for cashflow forecast"""
+    try:
+        body = await request.json()
+        query = body.get("query", "cashflow forecast")
+        result = get_cashflow_forecast(query)
+        return JSONResponse(content={"result": result})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/api/tools/search-documents")
+async def api_search_documents(request: Request):
+    """REST endpoint for document search"""
+    try:
+        body = await request.json()
+        query = body.get("query", "")
+        top = body.get("top", 3)
+        result = search_documents_tool(query, top)
+        return JSONResponse(content={"result": result})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/api/tools/exchange-rate")
+async def api_exchange_rate(request: Request):
+    """REST endpoint for exchange rate"""
+    try:
+        body = await request.json()
+        base = body.get("base_currency", "GBP")
+        target = body.get("target_currency", "USD")
+        result = get_exchange_rate(base, target)
+        return JSONResponse(content={"result": result})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+# List available tools
+@app.get("/api/tools")
+async def list_tools():
+    """List all available tools"""
+    return {
+        "tools": [
+            {
+                "name": "cashflow-forecast",
+                "description": "Get cashflow forecast with FX conversion and supporting documents",
+                "endpoint": "/api/tools/cashflow-forecast",
+                "parameters": {
+                    "query": "Search query for supporting documents"
+                }
+            },
+            {
+                "name": "search-documents",
+                "description": "Search SharePoint documents in Azure AI Search",
+                "endpoint": "/api/tools/search-documents",
+                "parameters": {
+                    "query": "Search query",
+                    "top": "Maximum number of results (default: 3)"
+                }
+            },
+            {
+                "name": "exchange-rate",
+                "description": "Get current exchange rate between currencies",
+                "endpoint": "/api/tools/exchange-rate",
+                "parameters": {
+                    "base_currency": "Base currency code (default: GBP)",
+                    "target_currency": "Target currency code (default: USD)"
+                }
+            }
+        ]
+    }
+
+# Mount MCP app at /mcp (for MCP-compatible clients)
 app.mount("/mcp", _mcp_app)
 
 # Add CORS middleware for Copilot Studio
