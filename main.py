@@ -12,10 +12,9 @@ from fastmcp.server import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.http import create_streamable_http_app
-from starlette.middleware.cors import CORSMiddleware
-from starlette.applications import Starlette
-from starlette.responses import JSONResponse
-from starlette.routing import Route, Mount
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 try:
     from fastmcp.server.exceptions import ToolError
@@ -216,33 +215,35 @@ def res_fabric_cashflow() -> List[float]:
 # --------------------------
 # ASGI app & direct run
 # --------------------------
-from starlette.applications import Starlette
-from starlette.responses import JSONResponse
-from starlette.routing import Route, Mount
-from starlette.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-async def health_check(request):
+async def health_check():
     """Health check endpoint for Azure App Service"""
-    return JSONResponse({"status": "healthy", "service": "CashflowAgent"})
+    return {"status": "healthy", "service": "CashflowAgent"}
 
-# Create MCP ASGI app at /mcp path
+# Create FastAPI app
+app = FastAPI(title="CashflowAgent")
+
+# Add health check endpoints
+@app.get("/")
+@app.get("/health")
+async def health():
+    return await health_check()
+
+# Create MCP ASGI app
 _mcp_app = create_streamable_http_app(
     server=mcp,
     streamable_http_path="/",
 )
 
-# Create main app with health check and MCP mounted at /mcp
-_app = Starlette(
-    routes=[
-        Route("/", health_check),
-        Route("/health", health_check),
-        Mount("/mcp", _mcp_app),
-    ]
-)
+# Mount MCP app at /mcp
+app.mount("/mcp", _mcp_app)
 
-# Wrap with CORS for Copilot Studio
-app = CORSMiddleware(
-    app=_app,
+# Add CORS middleware for Copilot Studio
+app.add_middleware(
+    CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
