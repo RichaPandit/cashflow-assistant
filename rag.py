@@ -1,6 +1,6 @@
 import logging
 import requests
-from config import SEARCH_ENDPOINT, SEARCH_KEY
+from config import SEARCH_ENDPOINT, SEARCH_KEY, SEARCH_INDEX
 
 logger = logging.getLogger(__name__)
 
@@ -8,7 +8,7 @@ def search_documents(query, top=3):
     """
     Query Azure Cognitive Search for documents indexed from Azure Blob Storage.
     """
-    url = f"{SEARCH_ENDPOINT}/indexes/cashflow-rag/docs/search?api-version=2023-11-01"
+    url = f"{SEARCH_ENDPOINT}/indexes/{SEARCH_INDEX}/docs/search?api-version=2023-11-01"
     headers = {
         "api-key": SEARCH_KEY,
         "Content-Type": "application/json"

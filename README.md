@@ -6,7 +6,7 @@ Cashflow Assistant is a Python Model Context Protocol (MCP) service that combine
 
 - Reads a Delta table from Microsoft Fabric OneLake using a configured ABFS path.
 - Calculates a cashflow forecast in GBP and converts it to USD using ExchangeRate-API; a separate tool supports retrieving other currency pairs.
-- Searches the `cashflow-rag` Azure AI Search index for supporting documents.
+- Searches the configured Azure AI Search index for supporting documents.
 - Exposes MCP tools and a cashflow resource over Streamable HTTP at `/mcp`.
 - Includes a GitHub Actions workflow for deployment to Azure App Service.
 
@@ -20,7 +20,7 @@ For a forecast request, the service:
 4. Searches Azure AI Search using the request's query and adds document results to the answer.
 5. Returns the forecast, citations, monthly breakdown when available, and an `evidence_trace`.
 
-The Delta table must contain `net_cashflow`. The optional `month` column enables a monthly breakdown. The Azure AI Search index is named `cashflow-rag`; the search code requests the `chunk`, `title`, `url`, and `parent_id` fields.
+The Delta table must contain `net_cashflow`. The optional `month` column enables a monthly breakdown. The Azure AI Search index defaults to `rag-1774725409174`; the search code requests the `chunk`, `title`, `url`, and `parent_id` fields.
 
 ## MCP interface
 
@@ -68,7 +68,7 @@ The forecast tool returns a JSON-encoded string with this general shape:
 
 - Python 3.11 (the version used by the included deployment workflow)
 - Access to a Microsoft Fabric Lakehouse Delta table through OneLake
-- An Azure AI Search service with a `cashflow-rag` index
+- An Azure AI Search service with the configured search index
 - An ExchangeRate-API key
 
 ## Configuration
@@ -83,6 +83,7 @@ ABFS_PATH=abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<lakehouse>.Lakeh
 
 SEARCH_ENDPOINT=https://<search-service>.search.windows.net
 SEARCH_KEY=your-azure-ai-search-key
+SEARCH_INDEX=rag-1774725409174
 
 EXCHANGE_API_KEY=your-exchangerate-api-key
 FX_BASE_CURRENCY=GBP
