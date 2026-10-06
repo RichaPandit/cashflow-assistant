@@ -77,7 +77,7 @@ mcp = FastMCP(
 
 @mcp.tool()
 
-def get_cashflow_forecast(query: str) -> str:
+def get_cashflow_forecast(query: str, start_month: str, end_month: str) -> str:
 
     """
     Get cashflow forecast from Fabric Lakehouse with FX conversion and supporting documents.
@@ -94,7 +94,7 @@ def get_cashflow_forecast(query: str) -> str:
         # 1. Fabric Lakehouse
         # ---------------------------------------------------------
         logger.info("Querying Fabric Lakehouse via ABFS...")
-        values = query_fabric_cashflow()
+        values = query_fabric_cashflow(source="forecast", start_month=start_month, end_month=end_month)
         logger.info("FORECAST VALUES TYPE: %s", type(values))
         logger.info("FORECAST VALUES CONTENT: %s", values)
         logger.info("Fabric values: %s", values)
@@ -152,6 +152,7 @@ def get_cashflow_forecast(query: str) -> str:
 
         # If values is a dict, treat it as a monthly breakdown.
         if isinstance(values, dict):
+
             forecast = sum(values.values())
             # Get FX rate once and use the same rate consistently.
             fx_rate = get_fx_rate()
