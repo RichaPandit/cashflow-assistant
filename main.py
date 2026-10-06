@@ -77,7 +77,11 @@ mcp = FastMCP(
 
 @mcp.tool()
 
-def get_cashflow_forecast(query: str, start_month: str, end_month: str) -> str:
+def get_cashflow_forecast(
+    query: str,
+    start_month: str | None = None,
+    end_month: str | None = None,
+) -> str:
 
     """
     Get cashflow forecast from Fabric Lakehouse with FX conversion and supporting documents.
@@ -86,6 +90,8 @@ def get_cashflow_forecast(query: str, start_month: str, end_month: str) -> str:
         for downstream Critic Council validation.
     Args:
         query: Search query for supporting documents
+        start_month: Optional inclusive start date for the forecast range (YYYY-MM-DD)
+        end_month: Optional inclusive end date for the forecast range (YYYY-MM-DD)
     """
     logger.info("get_cashflow_forecast called with query: %s", query)
 
