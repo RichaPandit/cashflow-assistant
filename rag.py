@@ -15,8 +15,7 @@ def search_documents(query, top=3):
     }
     body = {
         "search": query,
-        "top": top,
-        "select": "chunk,title,url,parent_id"
+        "top": top
     }
 
     logger.info("Searching index at: %s | query: %s", url, query)
@@ -43,7 +42,9 @@ def search_documents(query, top=3):
             normalised.append({
                 # keep the same output key to avoid breaking callers
                 "metadata_storage_name": (
-                    r.get("title") or r.get("id", "Document")
+                    r.get("title")
+                    or r.get("metadata_storage_name")
+                    or r.get("id", "Document")
                 ),
 
                 # canonical content field
@@ -53,7 +54,9 @@ def search_documents(query, top=3):
 
                 # canonical citation field
                 "metadata_storage_path": (
-                    r.get("url") or ""
+                    r.get("url")
+                    or r.get("metadata_storage_path")
+                    or ""
                 ),
 
                 "parent_id": r.get("parent_id")
