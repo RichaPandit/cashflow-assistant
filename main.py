@@ -76,46 +76,85 @@ mcp = FastMCP(
 # -----------------
 
 @mcp.tool()
+
 def get_cashflow_forecast(query: str) -> str:
+
     """
     Get cashflow forecast from Fabric Lakehouse with FX conversion and supporting documents.
-    Returns JSON with forecast, FX rate, and citations from Azure AI Search.
-    
+    Returns:
+        JSON containing the original forecast response plus an evidence trace
+        for downstream Critic Council validation.
     Args:
         query: Search query for supporting documents
     """
     logger.info("get_cashflow_forecast called with query: %s", query)
+
     try:
-        # 1. Fabric via ABFS
+        # ---------------------------------------------------------
+        # 1. Fabric Lakehouse
+        # ---------------------------------------------------------
         logger.info("Querying Fabric Lakehouse via ABFS...")
         values = query_fabric_cashflow()
         logger.info("Fabric values: %s", values)
 
-        # If values is a dict, treat as monthly breakdown
+        # If values is a dict, treat it as a monthly breakdown.
         if isinstance(values, dict):
             forecast = sum(values.values())
-            breakdown = {k: {"gbp": v, "usd": round(v * get_fx_rate(), 2)} for k, v in values.items()}
+            # Get FX rate once and use the same rate consistently.
+            fx_rate = get_fx_rate()
+            breakdown = {
+                k: {
+                    "gbp": v,
+                    "usd": round(v * fx_rate, 2)
+                }
+                for k, v in values.items()
+            }
         else:
             breakdown = None
             forecast = sum(values) / len(values) if values else 0
 
-        # 2. FX API
-        logger.info("Querying FX API...")
-        fx_rate = get_fx_rate()
-        logger.info("FX rate: %s", fx_rate)
+            # ---------------------------------------------------------
+            # 2. FX API
+            # ---------------------------------------------------------
+            logger.info("Querying FX API...")
+            fx_rate = get_fx_rate()
+            logger.info("FX rate: %s", fx_rate)
 
-        # 3. Azure AI Search (Blob PDFs)
+        # ---------------------------------------------------------
+        # 3. Calculate USD result
+        # ---------------------------------------------------------
+        forecast_usd = round(forecast * fx_rate, 2)
+
+        # ---------------------------------------------------------
+        # 4. Azure AI Search / RAG
+        # ---------------------------------------------------------
         logger.info("Querying Azure AI Search for docs...")
         docs_rag = search_documents(query)
         logger.info("Docs RAG: %s", docs_rag)
 
-        # 4. Build answer with citations
-        answer = f"Projected cash flow is £{int(forecast)} (~${int(forecast * fx_rate)})."
-        if breakdown:
-            answer += "\n\nBreakdown by month:" + "".join([f"\n- {month}: £{int(val['gbp'])} (~${int(val['usd'])})" for month, val in breakdown.items()])
+        # ---------------------------------------------------------
+        # 5. Build answer
+        # ---------------------------------------------------------
+        answer = (
+            f"Projected cash flow is £{int(forecast)} "
+            f"(~${int(forecast_usd)})."
+        )
 
-        # Add clickable PDF/document links if present
+        if breakdown:
+            answer += "\n\nBreakdown by month:"
+            answer += "".join(
+                [
+                    f"\n- {month}: £{int(val['gbp'])} "
+                    f"(~${int(val['usd'])})"
+                    for month, val in breakdown.items()
+                ]
+            )
+
+        # ---------------------------------------------------------
+        # 6. Supporting document links
+        # ---------------------------------------------------------
         doc_links = []
+
         for d in docs_rag:
             url = d.get("metadata_storage_path", "")
             title = d.get("metadata_storage_name", "Document")
@@ -123,10 +162,16 @@ def get_cashflow_forecast(query: str) -> str:
                 doc_links.append(f"[{title}]({url})")
             else:
                 doc_links.append(title)
-        if doc_links:
-            answer += "\n\nSupporting documents:" + "".join([f"\n- {link}" for link in doc_links])
 
-        # 5. Citations
+        if doc_links:
+            answer += "\n\nSupporting documents:"
+            answer += "".join(
+                [f"\n- {link}" for link in doc_links]
+            )
+
+        # ---------------------------------------------------------
+        # 7. Citations
+        # ---------------------------------------------------------
         citations = [
             {
                 "title": "Fabric Lakehouse (ABFS)",
@@ -141,39 +186,127 @@ def get_cashflow_forecast(query: str) -> str:
         ]
 
         for d in docs_rag:
-            # Build a clickable link for PDFs if possible
             url = d.get("metadata_storage_path", "")
             page = d.get("page")
             title = d.get("metadata_storage_name", "Document")
+
             if url and url.lower().endswith(".pdf"):
                 link = f"[{title}]({url})"
             else:
                 link = url or title
+
             if page:
                 cite_title = f"{link} (page {page})"
             else:
                 cite_title = link
-            citations.append({
-                "title": cite_title,
-                "url": url,
-                "source": d.get("source", "Azure AI Search")
-            })
 
-        # 6. Format Output
+            citations.append(
+                {
+                    "title": cite_title,
+                    "url": url,
+                    "source": d.get(
+                        "source",
+                        "Azure AI Search"
+                    )
+                }
+            )
+
+        # =========================================================
+        # 8. CRITIC COUNCIL EVIDENCE TRACE
+        # =========================================================
+
+        evidence_trace = {
+            "data_sources": [
+                {
+                    "source": "Cashflow_Lakehouse",
+                    "type": "fabric",
+                    "tables": [
+                        "balances",
+                        "cashflow_table",
+                        "cashflow_forecast"
+                    ]
+                },
+                {
+                    "source": "Exchange Rate API",
+                    "type": "fx_api",
+                    "base_currency": "GBP",
+                    "target_currency": "USD",
+                    "rate": fx_rate
+                },
+                {
+                    "source": "Azure AI Search",
+                    "type": "document_search",
+                    "result_count": len(docs_rag)
+                }
+            ],
+            "evidence": {
+                "fabric_result": values,
+                "document_results": docs_rag
+            },
+            "transformations": [
+                {
+                    "operation": "forecast_calculation",
+                    "input": values,
+                    "result": forecast,
+                    "method": (
+                        "sum(monthly_values)"
+                        if isinstance(values, dict)
+                        else "average(returned_values)"
+                    )
+                },
+                {
+                    "operation": "currency_conversion",
+                    "source_currency": "GBP",
+                    "target_currency": "USD",
+                    "input_value": forecast,
+                    "fx_rate": fx_rate,
+                    "formula": "GBP_amount * GBP_USD_rate",
+                    "result": forecast_usd
+                }
+            ],
+            "assumptions": [],
+            "validation_metadata": {
+                "forecast_currency": "GBP",
+                "target_currency": "USD",
+                "query": query,
+                "monthly_breakdown_available": breakdown is not None
+            }
+        }
+
+        # ---------------------------------------------------------
+        # 9. Preserve existing response contract + add trace
+        # ---------------------------------------------------------
         result = {
             "answer": answer,
             "forecast_gbp": int(forecast),
-            "forecast_usd": int(forecast * fx_rate),
+            "forecast_usd": int(forecast_usd),
             "fx_rate": fx_rate,
-            "citations": citations
+            "citations": citations,
+            # New Critic Council payload
+            "evidence_trace": evidence_trace
         }
+
         if breakdown:
             result["monthly_breakdown"] = breakdown
+
         logger.info("Returning result: %s", result)
-        return json.dumps(result, ensure_ascii=False)
+
+        return json.dumps(
+            result,
+            ensure_ascii=False
+        )
+
     except Exception as e:
-        logger.error("Error in get_cashflow_forecast: %s", e, exc_info=True)
-        return json.dumps({"error": str(e)}, ensure_ascii=False)
+        logger.error(
+            "Error in get_cashflow_forecast: %s",
+            e,
+            exc_info=True
+        )
+
+        return json.dumps(
+            {"error": str(e)},
+            ensure_ascii=False
+        )
 
 @mcp.tool()
 def search_documents_tool(query: str, top: int = 3) -> str:
