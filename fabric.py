@@ -26,12 +26,6 @@ def query_fabric_cashflow(source="forecast", start_month=None, end_month=None):
         dt = DeltaTable(path, storage_options=storage_options)
         df = dt.to_pandas()
         df.columns = [str(c).strip().lower() for c in df.columns]  # Normalize column names to lowercase
-        df["month"] = pd.to_datetime(df["month"])
-        if start_month and end_month:
-            df = df[
-                (df["month"] >= pd.Timestamp(start_month)) &
-                (df["month"] <= pd.to_datetime(end_month))
-            ]
         logger.info("Delta table loaded. Shape: %s, Columns: %s", df.shape, df.columns.tolist())
 
         if "net_cashflow" not in df.columns:
@@ -39,9 +33,17 @@ def query_fabric_cashflow(source="forecast", start_month=None, end_month=None):
             return []
 
         if "month" in df.columns:
+            df["month"] = pd.to_datetime(df["month"])
+            if start_month and end_month:
+                df = df[
+                    (df["month"] >= pd.Timestamp(start_month)) &
+                    (df["month"] <= pd.to_datetime(end_month))
+                ]
             grouped = df.groupby("month")["net_cashflow"].sum().sort_index()
-            logger.info("Monthly cashflow breakdown: %s", grouped.to_dict())
-            return grouped.to_dict()
+            grouped.index = grouped.index.strftime("%Y-%m-%d")
+            values = grouped.to_dict()
+            logger.info("Monthly cashflow breakdown: %s", values)
+            return values
         else:
             values = df["net_cashflow"].dropna().tail(3).tolist()
             logger.info("Cashflow values: %s", values)
