@@ -1,12 +1,11 @@
 import logging
 import pandas as pd
 from deltalake import DeltaTable
-from config import TENANT_ID, CLIENT_ID, CLIENT_SECRET, ABFS_PATH
+from config import TENANT_ID, CLIENT_ID, CLIENT_SECRET, CASHFLOW_TABLE_PATH, BALANCES_TABLE_PATH, CASHFLOW_FORECAST_TABLE_PATH
 
 logger = logging.getLogger(__name__)
 
-
-def query_fabric_cashflow():
+def query_fabric_cashflow(source="forecast"):
     storage_options = {
         "azure_tenant_id": TENANT_ID,
         "azure_client_id": CLIENT_ID,
@@ -14,8 +13,17 @@ def query_fabric_cashflow():
     }
 
     try:
-        logger.info("Reading Delta table from OneLake path: %s", ABFS_PATH)
-        dt = DeltaTable(ABFS_PATH, storage_options=storage_options)
+        if source == "forecast":
+            path = CASHFLOW_FORECAST_TABLE_PATH  # Use the forecast table path
+        elif source == "historical":
+            path = CASHFLOW_TABLE_PATH  # Use the historical table path
+        elif source == "balances":
+            path = BALANCES_TABLE_PATH  # Use the balances table path
+        else:
+            logger.error("Invalid source specified: %s", source)
+            return []
+        logger.info("Reading Delta table from OneLake path: %s", path)
+        dt = DeltaTable(path, storage_options=storage_options)
         df = dt.to_pandas()
         logger.info("Delta table loaded. Shape: %s, Columns: %s", df.shape, df.columns.tolist())
 
