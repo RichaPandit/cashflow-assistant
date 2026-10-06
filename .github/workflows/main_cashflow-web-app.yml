@@ -53,6 +53,6 @@ jobs:
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
-          app-name: 'cashflow-app'
+          app-name: 'cashflow-web-app'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_C41BED0C43EB4234BE71849A35AC9892 }}

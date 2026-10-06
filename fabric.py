@@ -5,7 +5,7 @@ from config import TENANT_ID, CLIENT_ID, CLIENT_SECRET, CASHFLOW_TABLE_PATH, BAL
 
 logger = logging.getLogger(__name__)
 
-def query_fabric_cashflow(source="forecast"):
+def query_fabric_cashflow(source="forecast", start_month=None, end_month=None):
     storage_options = {
         "azure_tenant_id": TENANT_ID,
         "azure_client_id": CLIENT_ID,
@@ -25,6 +25,12 @@ def query_fabric_cashflow(source="forecast"):
         logger.info("Reading Delta table from OneLake path: %s", path)
         dt = DeltaTable(path, storage_options=storage_options)
         df = dt.to_pandas()
+        df["month"] = pd.to_datetime(df["month"])
+        if start_month and end_month:
+            df = df[
+                (df["month"] >= pd.Timestamp(start_month)) &
+                (df["month"] <= pd.to_datetime(end_month))
+            ]
         logger.info("Delta table loaded. Shape: %s, Columns: %s", df.shape, df.columns.tolist())
 
         if "net_cashflow" not in df.columns:

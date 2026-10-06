@@ -95,6 +95,8 @@ def get_cashflow_forecast(query: str) -> str:
         # ---------------------------------------------------------
         logger.info("Querying Fabric Lakehouse via ABFS...")
         values = query_fabric_cashflow()
+        logger.info("FORECAST VALUES TYPE: %s", type(values))
+        logger.info("FORECAST VALUES CONTENT: %s", values)
         logger.info("Fabric values: %s", values)
 
         # No data is NOT the same as a zero forecast.
