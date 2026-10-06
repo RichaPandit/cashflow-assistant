@@ -97,6 +97,57 @@ def get_cashflow_forecast(query: str) -> str:
         values = query_fabric_cashflow()
         logger.info("Fabric values: %s", values)
 
+        # No data is NOT the same as a zero forecast.
+        if not values:
+            result = {
+                "answer": (
+                    "No cashflow forecast could be calculated because "
+                    "the underlying Fabric Lakehouse query returned no records."
+                ),
+                "forecast_gbp": None,
+                "forecast_usd": None,
+                "fx_rate": None,
+                "citations": [
+                    {
+                        "title": "Fabric Lakehouse (ABFS)",
+                        "url": "https://app.fabric.microsoft.com/",
+                        "source": "Fabric"
+                    }
+                ],
+                "evidence_trace": {
+                    "data_sources": [
+                        {
+                            "source": "Cashflow_Lakehouse",
+                            "type": "fabric",
+                            "tables": [
+                                "balances",
+                                "cashflow_table",
+                                "cashflow_forecast"
+                            ]
+                        }
+                    ],
+                    "evidence": {
+                        "fabric_result": [],
+                        "document_results": []
+                    },
+                    "transformations": [],
+                    "assumptions": [],
+                    "validation_metadata": {
+                        "forecast_status": "NO_DATA",
+                        "forecast_currency": "GBP",
+                        "query": query,
+                        "monthly_breakdown_available": False
+                    }
+                }
+            }
+
+            logger.info("No Fabric data returned. Returning NO_DATA response.")
+
+            return json.dumps(
+                result,
+                ensure_ascii=False
+            )
+
         # If values is a dict, treat it as a monthly breakdown.
         if isinstance(values, dict):
             forecast = sum(values.values())
