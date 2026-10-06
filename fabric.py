@@ -25,6 +25,7 @@ def query_fabric_cashflow(source="forecast", start_month=None, end_month=None):
         logger.info("Reading Delta table from OneLake path: %s", path)
         dt = DeltaTable(path, storage_options=storage_options)
         df = dt.to_pandas()
+        df.columns = [str(c).strip().lower() for c in df.columns]  # Normalize column names to lowercase
         df["month"] = pd.to_datetime(df["month"])
         if start_month and end_month:
             df = df[
